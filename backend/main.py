@@ -1,5 +1,10 @@
 # backend/main.py
-import os, json, traceback, uuid, datetime, logging
+import os
+import json
+import traceback
+import uuid
+import datetime
+import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
@@ -28,12 +33,15 @@ else:
 app = FastAPI(title="Bot4Code API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# Serve static files from the 'frontend' directory
+# Mount static files from the 'frontend' directory at /static
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
-# Serve index.html at the root endpoint
+# Root endpoint to serve index.html
 @app.get("/")
 async def serve_index():
+    if not os.path.exists("frontend/index.html"):
+        logger.error("frontend/index.html not found")
+        raise HTTPException(status_code=404, detail="Frontend not configured")
     return FileResponse("frontend/index.html")
 
 class ChatReq(BaseModel):
@@ -46,7 +54,6 @@ def _ensure_system_message(messages: list, template: str):
     if not messages:
         system_prompt = PROMPTS.get(template, PROMPTS.get("default", "You are CodeBot."))
         return [{"role": "system", "content": system_prompt}]
-    # if messages provided but no system, insert system at front
     if not any(m.get("role") == "system" for m in messages):
         system_prompt = PROMPTS.get(template, PROMPTS.get("default", "You are CodeBot."))
         return [{"role": "system", "content": system_prompt}] + messages
@@ -69,14 +76,12 @@ def save_chat_to_file(messages: list, assistant_reply: str, folder: str = "chats
 
 @app.post("/chat")
 async def chat(req: ChatReq):
-    # non-stream convenience: returns full reply after call
     messages = req.messages
     if not messages and req.prompt is not None:
         messages = [{"role": "user", "content": req.prompt}]
     messages = _ensure_system_message(messages, req.template)
     try:
         reply = await call_auto_messages(messages)
-        # save & upload to Dropbox
         try:
             path = save_chat_to_file(messages, reply)
             dropbox_link = upload_to_dropbox(path, folder=DROPBOX_BASE_FOLDER)
@@ -91,12 +96,6 @@ async def chat(req: ChatReq):
 
 @app.post("/chat/stream")
 async def chat_stream(req: Request):
-    """
-    Streaming endpoint.
-    Expects JSON body { messages: [... ] } OR { prompt, template }.
-    Yields raw text chunks. When finished, yields a final line:
-        [FILE_UPLOADED] <dropbox_link>  (or UPLOAD_FAILED)
-    """
     body = await req.json()
     messages = body.get("messages")
     if not messages:
@@ -110,7 +109,6 @@ async def chat_stream(req: Request):
             async for chunk in stream_auto_messages(messages):
                 assembled += chunk
                 yield chunk
-            # finished streaming: save and upload (best-effort)
             try:
                 file_path = save_chat_to_file(messages, assembled)
                 try:

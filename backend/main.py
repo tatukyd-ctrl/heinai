@@ -1,4 +1,3 @@
-# backend/main.py
 import os, json, traceback, uuid, datetime, logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,7 +36,6 @@ def _ensure_system_message(messages: list, template: str):
     if not messages:
         system_prompt = PROMPTS.get(template, PROMPTS.get("default", "You are CodeBot."))
         return [{"role": "system", "content": system_prompt}]
-    # if messages provided but no system, insert system at front
     if not any(m.get("role") == "system" for m in messages):
         system_prompt = PROMPTS.get(template, PROMPTS.get("default", "You are CodeBot."))
         return [{"role": "system", "content": system_prompt}] + messages
@@ -60,18 +58,16 @@ def save_chat_to_file(messages: list, assistant_reply: str, folder: str = "chats
 
 @app.post("/chat")
 async def chat(req: ChatReq):
-    # non-stream convenience: returns full reply after call
     messages = req.messages
     if not messages and req.prompt is not None:
         messages = [{"role": "user", "content": req.prompt}]
     messages = _ensure_system_message(messages, req.template)
     try:
         reply = await call_auto_messages(messages)
-        # save & upload to Dropbox
         try:
             path = save_chat_to_file(messages, reply)
             dropbox_link = upload_to_dropbox(path, folder=DROPBOX_BASE_FOLDER)
-        except Exception as e:
+        except Exception:
             logger.exception("save/upload failed")
             path = None
             dropbox_link = None
@@ -82,16 +78,9 @@ async def chat(req: ChatReq):
 
 @app.post("/chat/stream")
 async def chat_stream(req: Request):
-    """
-    Streaming endpoint.
-    Expects JSON body { messages: [... ] } OR { prompt, template }.
-    Yields raw text chunks. When finished, yields a final line:
-        [FILE_UPLOADED] <dropbox_link>  (or UPLOAD_FAILED)
-    """
     body = await req.json()
     messages = body.get("messages")
     if not messages:
-        template = body.get("template", "default")
         messages = [{"role": "user", "content": body.get("prompt", "")}]
     messages = _ensure_system_message(messages, body.get("template", "default"))
 
@@ -101,16 +90,15 @@ async def chat_stream(req: Request):
             async for chunk in stream_auto_messages(messages):
                 assembled += chunk
                 yield chunk
-            # finished streaming: save and upload (best-effort)
             try:
                 file_path = save_chat_to_file(messages, assembled)
                 try:
                     dropbox_link = upload_to_dropbox(file_path, folder=DROPBOX_BASE_FOLDER)
                     yield "\n\n[FILE_UPLOADED] " + dropbox_link
-                except Exception as e:
+                except Exception:
                     logger.exception("Dropbox upload failed")
                     yield "\n\n[FILE_UPLOADED] UPLOAD_FAILED"
-            except Exception as e:
+            except Exception:
                 logger.exception("Saving chat to file failed")
                 yield "\n\n[FILE_UPLOADED] SAVE_FAILED"
         except Exception as e:
@@ -118,3 +106,9 @@ async def chat_stream(req: Request):
             yield f"\n\n[ERROR] {str(e)}"
 
     return StreamingResponse(event_generator(), media_type="text/plain; charset=utf-8")
+
+# ✅ Entry point cho local/Render
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=port)

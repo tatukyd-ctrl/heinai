@@ -13,9 +13,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const newChatBtn = document.getElementById('new-chat');
   const chatTitle = document.getElementById('chat-title');
 
-  // Check for null elements
+  // Kiểm tra phần tử DOM
   if (!messagesEl || !inputEl || !sendBtn || !stopBtn || !templateSelect || !toggleThemeBtn || !clearBtn || !newChatBtn || !chatTitle) {
-    console.error('One or more DOM elements not found:', {
+    console.error('Không tìm thấy một hoặc nhiều phần tử DOM:', {
       messagesEl, inputEl, sendBtn, stopBtn, templateSelect, toggleThemeBtn, clearBtn, newChatBtn, chatTitle
     });
     return;
@@ -25,8 +25,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let conversation = loadConversation() || {
     id: Date.now(),
-    title: "New chat",
-    messages: [{ role: 'system', content: 'You are CodeBot — help with code.' }]
+    title: "Cuộc trò chuyện mới",
+    messages: [{ role: 'system', content: 'Bạn là CodeBot — hỗ trợ về lập trình.' }]
   };
 
   let controller = null;
@@ -63,7 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
   newChatBtn.addEventListener('click', () => {
     conversation = {
       id: Date.now(),
-      title: 'New chat',
+      title: 'Cuộc trò chuyện mới',
       messages: conversation.messages.filter(m => m.role === 'system')
     };
     saveConversation();
@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderMessages() {
     messagesEl.innerHTML = '';
-    chatTitle.innerText = conversation.title || 'New chat';
+    chatTitle.innerText = conversation.title || 'Cuộc trò chuyện mới';
     conversation.messages.forEach(m => {
       const node = document.createElement('div');
       node.className = 'message ' + (m.role === 'user' ? 'user' : 'bot');
@@ -91,12 +91,12 @@ document.addEventListener('DOMContentLoaded', () => {
           if (pre.querySelector('.copy-btn')) return;
           const btn = document.createElement('button');
           btn.className = 'copy-btn';
-          btn.textContent = 'Copy';
+          btn.textContent = 'Sao chép';
           btn.addEventListener('click', () => {
             const code = pre.querySelector('code') || pre;
             navigator.clipboard.writeText(code.textContent);
-            btn.textContent = 'Copied!';
-            setTimeout(() => btn.textContent = 'Copy', 1200);
+            btn.textContent = 'Đã sao chép!';
+            setTimeout(() => btn.textContent = 'Sao chép', 1200);
           });
           pre.appendChild(btn);
         });
@@ -106,7 +106,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof Prism !== 'undefined') {
       Prism.highlightAll();
     } else {
-      console.warn('Prism.js not loaded, code highlighting skipped');
+      console.warn('Prism.js không tải được, bỏ qua tô màu mã nguồn');
     }
   }
 
@@ -129,7 +129,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(conversation));
     } catch (e) {
-      console.error('Failed to save conversation:', e);
+      console.error('Lỗi lưu cuộc trò chuyện:', e);
     }
   }
 
@@ -138,7 +138,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const raw = localStorage.getItem(STORAGE_KEY);
       return raw ? JSON.parse(raw) : null;
     } catch (e) {
-      console.error('Failed to load conversation:', e);
+      console.error('Lỗi tải cuộc trò chuyện:', e);
       return null;
     }
   }
@@ -149,7 +149,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!prompt) return;
 
     conversation.messages.push({ role: 'user', content: prompt });
-    if (!conversation.title || conversation.title === 'New chat') {
+    if (!conversation.title || conversation.title === 'Cuộc trò chuyện mới') {
       conversation.title = prompt.split('\n')[0].slice(0, 80);
     }
     inputEl.value = '';
@@ -167,7 +167,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     try {
       const payload = { messages: conversation.messages, template: templateSelect.value, provider: 'auto' };
-      console.log('Sending request to', API_STREAM, 'with payload:', payload);
+      console.log('Gửi yêu cầu tới', API_STREAM, 'với payload:', payload);
       const resp = await fetch(API_STREAM, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -177,8 +177,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (!resp.ok) {
         const data = await resp.json().catch(() => ({ error: resp.statusText }));
-        console.error('API error:', data);
-        assistantMsg.content = data.reply || `Error: ${data.error || resp.status}`;
+        console.error('Lỗi API:', data);
+        assistantMsg.content = data.reply || `Lỗi: ${data.error || resp.status}`;
         saveConversation();
         renderMessages();
         return;
@@ -215,11 +215,11 @@ document.addEventListener('DOMContentLoaded', () => {
         renderMessages();
       }
     } catch (err) {
-      console.error('Fetch error:', err);
+      console.error('Lỗi fetch:', err);
       if (err.name === 'AbortError') {
-        assistantMsg.content += "\n\n[Stream stopped by user]";
+        assistantMsg.content += "\n\n[Đã dừng stream bởi người dùng]";
       } else {
-        assistantMsg.content += `\n\n[Network error] ${err.message}`;
+        assistantMsg.content += `\n\n[Lỗi mạng] ${err.message}`;
       }
       saveConversation();
       renderMessages();
@@ -233,7 +233,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function setLoading(isLoading) {
     sendBtn.disabled = isLoading;
     stopBtn.disabled = !isLoading;
-    sendBtn.textContent = isLoading ? 'Loading...' : 'Send';
+    sendBtn.textContent = isLoading ? 'Đang tải...' : 'Gửi';
   }
 
   renderMessages();

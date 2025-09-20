@@ -30,7 +30,6 @@ document.addEventListener('DOMContentLoaded', () => {
   let conversation = loadConversation() || {
     id: Date.now(),
     title: "Cuộc trò chuyện mới",
-    messages: [{ role: 'system', content: 'Bạn là CodeBot — hỗ trợ về lập trình.' }]
   };
 
   let controller = null;

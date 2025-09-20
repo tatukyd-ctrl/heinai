@@ -33,13 +33,13 @@ else:
 app = FastAPI(title="Bot4Code API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# Mount static files from the 'frontend' directory at /static
+# Mount static files
 FRONTEND_DIR = os.path.join(BASE_DIR, "../frontend")
 if not os.path.exists(FRONTEND_DIR):
     logger.error(f"Frontend directory not found at {FRONTEND_DIR}")
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
-# Root endpoint to serve index.html
+# Root endpoint
 @app.get("/")
 async def serve_index():
     index_path = os.path.join(FRONTEND_DIR, "index.html")
@@ -49,7 +49,7 @@ async def serve_index():
     logger.info("Serving index.html")
     return FileResponse(index_path)
 
-# Debug endpoint to list static files (for troubleshooting)
+# Debug endpoint to list static files
 @app.get("/debug/static-files")
 async def debug_static_files():
     try:
@@ -97,16 +97,19 @@ async def chat(req: ChatReq):
         messages = [{"role": "user", "content": req.prompt}]
     messages = _ensure_system_message(messages, req.template)
     try:
+        logger.info(f"Processing /chat with messages: {messages}")
         reply = await call_auto_messages(messages)
         try:
             path = save_chat_to_file(messages, reply)
             dropbox_link = upload_to_dropbox(path, folder=DROPBOX_BASE_FOLDER)
+            logger.info(f"Chat saved to {path}, Dropbox link: {dropbox_link}")
         except Exception as e:
             logger.exception("save/upload failed")
             path = None
             dropbox_link = None
         return {"reply": reply, "file_path": path, "dropbox_link": dropbox_link}
     except Exception as e:
+        logger.exception(f"Chat endpoint error: {str(e)}")
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -118,6 +121,7 @@ async def chat_stream(req: Request):
         template = body.get("template", "default")
         messages = [{"role": "user", "content": body.get("prompt", "")}]
     messages = _ensure_system_message(messages, body.get("template", "default"))
+    logger.info(f"Processing /chat/stream with messages: {messages}")
 
     async def event_generator():
         assembled = ""
@@ -129,6 +133,7 @@ async def chat_stream(req: Request):
                 file_path = save_chat_to_file(messages, assembled)
                 try:
                     dropbox_link = upload_to_dropbox(file_path, folder=DROPBOX_BASE_FOLDER)
+                    logger.info(f"Streamed chat saved to {file_path}, Dropbox link: {dropbox_link}")
                     yield "\n\n[FILE_UPLOADED] " + dropbox_link
                 except Exception as e:
                     logger.exception("Dropbox upload failed")
@@ -137,7 +142,7 @@ async def chat_stream(req: Request):
                 logger.exception("Saving chat to file failed")
                 yield "\n\n[FILE_UPLOADED] SAVE_FAILED"
         except Exception as e:
-            logger.exception("Stream error")
+            logger.exception(f"Stream error: {str(e)}")
             yield f"\n\n[ERROR] {str(e)}"
 
     return StreamingResponse(event_generator(), media_type="text/plain; charset=utf-8")

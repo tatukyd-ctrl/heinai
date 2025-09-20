@@ -33,6 +33,14 @@ else:
 app = FastAPI(title="Bot4Code API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+# Middleware để loại bỏ hoặc sửa Permissions-Policy header
+@app.middleware("http")
+async def remove_invalid_permissions_policy(request: Request, call_next):
+    response = await call_next(request)
+    # Xóa Permissions-Policy hoặc đặt giá trị hợp lệ
+    response.headers["Permissions-Policy"] = "interest-cohort=()"
+    return response
+
 # Mount static files
 FRONTEND_DIR = os.path.join(BASE_DIR, "../frontend")
 if not os.path.exists(FRONTEND_DIR):

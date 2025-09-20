@@ -30,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let conversation = loadConversation() || {
     id: Date.now(),
     title: "Cuộc trò chuyện mới",
+    messages: [{ role: 'system', content: 'Hello' }]
   };
 
   let controller = null;

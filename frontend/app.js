@@ -1,8 +1,8 @@
 // frontend/app.js
 // Robust streaming client + localStorage + copy code + Prism highlight
 
-const API_STREAM = "/chat/stream"; // Changed to relative URL
-const API_SYNC = "/chat"; // Changed to relative URL
+const API_STREAM = "/chat/stream"; // Relative URL
+const API_SYNC = "/chat"; // Relative URL
 
 const messagesEl = document.getElementById('messages');
 const inputEl = document.getElementById('input');

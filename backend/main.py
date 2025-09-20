@@ -28,7 +28,7 @@ if os.path.exists(PROMPTS_PATH):
     with open(PROMPTS_PATH, "r", encoding="utf-8") as f:
         PROMPTS = json.load(f)
 else:
-    PROMPTS = {"default": "You are CodeBot — help with code."}
+    PROMPTS = {"default": "Bạn là CodeBot — hỗ trợ về lập trình."}
 
 app = FastAPI(title="Bot4Code API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -36,7 +36,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 # Mount static files
 FRONTEND_DIR = os.path.join(BASE_DIR, "../frontend")
 if not os.path.exists(FRONTEND_DIR):
-    logger.error(f"Frontend directory not found at {FRONTEND_DIR}")
+    logger.error(f"Thư mục frontend không tìm thấy tại {FRONTEND_DIR}")
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 # Root endpoint
@@ -44,21 +44,21 @@ app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 async def serve_index():
     index_path = os.path.join(FRONTEND_DIR, "index.html")
     if not os.path.exists(index_path):
-        logger.error(f"index.html not found at {index_path}")
-        raise HTTPException(status_code=404, detail="Frontend not configured")
-    logger.info("Serving index.html")
+        logger.error(f"index.html không tìm thấy tại {index_path}")
+        raise HTTPException(status_code=404, detail="Frontend không được cấu hình")
+    logger.info("Phục vụ index.html")
     return FileResponse(index_path)
 
-# Debug endpoint to list static files
+# Debug endpoint
 @app.get("/debug/static-files")
 async def debug_static_files():
     try:
         files = os.listdir(FRONTEND_DIR)
-        logger.info(f"Static files in {FRONTEND_DIR}: {files}")
+        logger.info(f"Tệp tĩnh trong {FRONTEND_DIR}: {files}")
         return {"static_files": files}
     except Exception as e:
-        logger.error(f"Error listing static files: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error listing static files: {str(e)}")
+        logger.error(f"Lỗi liệt kê tệp tĩnh: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Lỗi liệt kê tệp tĩnh: {str(e)}")
 
 class ChatReq(BaseModel):
     messages: list = None
@@ -68,10 +68,10 @@ class ChatReq(BaseModel):
 
 def _ensure_system_message(messages: list, template: str):
     if not messages:
-        system_prompt = PROMPTS.get(template, PROMPTS.get("default", "You are CodeBot."))
+        system_prompt = PROMPTS.get(template, PROMPTS.get("default", "Bạn là CodeBot."))
         return [{"role": "system", "content": system_prompt}]
     if not any(m.get("role") == "system" for m in messages):
-        system_prompt = PROMPTS.get(template, PROMPTS.get("default", "You are CodeBot."))
+        system_prompt = PROMPTS.get(template, PROMPTS.get("default", "Bạn là CodeBot."))
         return [{"role": "system", "content": system_prompt}] + messages
     return messages
 
@@ -86,7 +86,7 @@ def save_chat_to_file(messages: list, assistant_reply: str, folder: str = "chats
             content = m.get("content", "")
             f.write(f"### {role}\n\n{content}\n\n")
         f.write("\n---\n\n")
-        f.write("### assistant (final reply)\n\n")
+        f.write("### assistant (phản hồi cuối cùng)\n\n")
         f.write(assistant_reply)
     return path
 
@@ -97,19 +97,19 @@ async def chat(req: ChatReq):
         messages = [{"role": "user", "content": req.prompt}]
     messages = _ensure_system_message(messages, req.template)
     try:
-        logger.info(f"Processing /chat with messages: {messages}")
+        logger.info(f"Xử lý /chat với messages: {messages}")
         reply = await call_auto_messages(messages)
         try:
             path = save_chat_to_file(messages, reply)
             dropbox_link = upload_to_dropbox(path, folder=DROPBOX_BASE_FOLDER)
-            logger.info(f"Chat saved to {path}, Dropbox link: {dropbox_link}")
+            logger.info(f"Cuộc trò chuyện lưu tại {path}, link Dropbox: {dropbox_link}")
         except Exception as e:
-            logger.exception("save/upload failed")
+            logger.exception("Lưu/tải lên thất bại")
             path = None
             dropbox_link = None
         return {"reply": reply, "file_path": path, "dropbox_link": dropbox_link}
     except Exception as e:
-        logger.exception(f"Chat endpoint error: {str(e)}")
+        logger.exception(f"Lỗi endpoint chat: {str(e)}")
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -121,7 +121,7 @@ async def chat_stream(req: Request):
         template = body.get("template", "default")
         messages = [{"role": "user", "content": body.get("prompt", "")}]
     messages = _ensure_system_message(messages, body.get("template", "default"))
-    logger.info(f"Processing /chat/stream with messages: {messages}")
+    logger.info(f"Xử lý /chat/stream với messages: {messages}")
 
     async def event_generator():
         assembled = ""
@@ -133,16 +133,16 @@ async def chat_stream(req: Request):
                 file_path = save_chat_to_file(messages, assembled)
                 try:
                     dropbox_link = upload_to_dropbox(file_path, folder=DROPBOX_BASE_FOLDER)
-                    logger.info(f"Streamed chat saved to {file_path}, Dropbox link: {dropbox_link}")
+                    logger.info(f"Cuộc trò chuyện stream lưu tại {file_path}, link Dropbox: {dropbox_link}")
                     yield "\n\n[FILE_UPLOADED] " + dropbox_link
                 except Exception as e:
-                    logger.exception("Dropbox upload failed")
+                    logger.exception("Tải lên Dropbox thất bại")
                     yield "\n\n[FILE_UPLOADED] UPLOAD_FAILED"
             except Exception as e:
-                logger.exception("Saving chat to file failed")
+                logger.exception("Lưu cuộc trò chuyện thất bại")
                 yield "\n\n[FILE_UPLOADED] SAVE_FAILED"
         except Exception as e:
-            logger.exception(f"Stream error: {str(e)}")
+            logger.exception(f"Lỗi stream: {str(e)}")
             yield f"\n\n[ERROR] {str(e)}"
 
     return StreamingResponse(event_generator(), media_type="text/plain; charset=utf-8")

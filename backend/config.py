@@ -16,7 +16,7 @@ try:
     if not DROPBOX_ACCESS_TOKEN:
         logger.warning("Không tìm thấy DROPBOX_ACCESS_TOKEN trong biến môi trường")
 
-    DROPBOX_BASE_FOLDER = os.getenv("DROPBOX_BASE_FOLDER", "/my-app-chats")
+    DROPBOX_BASE_FOLDER = os.getenv("DROPBOX_BASE_FOLDER", "/heinai")
     logger.info(f"DROPBOX_BASE_FOLDER được đặt thành: {DROPBOX_BASE_FOLDER}")
 
     # Xử lý các khóa API, đảm bảo danh sách không rỗng

@@ -5,7 +5,7 @@ import traceback
 import uuid
 import datetime
 import logging
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -34,15 +34,31 @@ app = FastAPI(title="Bot4Code API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # Mount static files from the 'frontend' directory at /static
-app.mount("/static", StaticFiles(directory="frontend"), name="static")
+FRONTEND_DIR = os.path.join(BASE_DIR, "../frontend")
+if not os.path.exists(FRONTEND_DIR):
+    logger.error(f"Frontend directory not found at {FRONTEND_DIR}")
+app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 # Root endpoint to serve index.html
 @app.get("/")
 async def serve_index():
-    if not os.path.exists("frontend/index.html"):
-        logger.error("frontend/index.html not found")
+    index_path = os.path.join(FRONTEND_DIR, "index.html")
+    if not os.path.exists(index_path):
+        logger.error(f"index.html not found at {index_path}")
         raise HTTPException(status_code=404, detail="Frontend not configured")
-    return FileResponse("frontend/index.html")
+    logger.info("Serving index.html")
+    return FileResponse(index_path)
+
+# Debug endpoint to list static files (for troubleshooting)
+@app.get("/debug/static-files")
+async def debug_static_files():
+    try:
+        files = os.listdir(FRONTEND_DIR)
+        logger.info(f"Static files in {FRONTEND_DIR}: {files}")
+        return {"static_files": files}
+    except Exception as e:
+        logger.error(f"Error listing static files: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error listing static files: {str(e)}")
 
 class ChatReq(BaseModel):
     messages: list = None

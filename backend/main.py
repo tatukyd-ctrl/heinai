@@ -77,10 +77,10 @@ class ChatReq(BaseModel):
 
 def _ensure_system_message(messages: list, template: str):
     if not messages:
-        system_prompt = PROMPTS.get(template, PROMPTS.get("default", "Bạn là CodeBot."))
+        system_prompt = PROMPTS.get(template, PROMPTS.get("default", "Bạn là HeinBot."))
         return [{"role": "system", "content": system_prompt}]
     if not any(m.get("role") == "system" for m in messages):
-        system_prompt = PROMPTS.get(template, PROMPTS.get("default", "Bạn là CodeBot."))
+        system_prompt = PROMPTS.get(template, PROMPTS.get("default", "Bạn là HeinBot."))
         return [{"role": "system", "content": system_prompt}] + messages
     return messages
 

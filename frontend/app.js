@@ -1,8 +1,8 @@
 // frontend/app.js
 // Robust streaming client + localStorage + copy code + Prism highlight
 
-const API_STREAM = "http://127.0.0.1:8000/chat/stream";
-const API_SYNC = "http://127.0.0.1:8000/chat";
+const API_STREAM = "/chat/stream"; // Changed to relative URL
+const API_SYNC = "/chat"; // Changed to relative URL
 
 const messagesEl = document.getElementById('messages');
 const inputEl = document.getElementById('input');
@@ -33,7 +33,7 @@ if (localStorage.getItem('theme') === 'light') {
 } else {
   toggleThemeBtn.textContent = '🌙';
 }
-toggleThemeBtn.addEventListener('click', ()=> {
+toggleThemeBtn.addEventListener('click', () => {
   document.body.classList.toggle('light');
   toggleThemeBtn.textContent = document.body.classList.contains('light') ? '☀️' : '🌙';
   localStorage.setItem('theme', document.body.classList.contains('light') ? 'light' : 'dark');
@@ -44,12 +44,20 @@ sendBtn.addEventListener('click', sendPrompt);
 inputEl.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPrompt(); }
 });
-stopBtn.addEventListener('click', ()=> { if (controller) controller.abort(); });
-clearBtn.addEventListener('click', ()=> { conversation.messages = conversation.messages.filter(m => m.role === 'system'); saveConversation(); renderMessages(); });
-newChatBtn.addEventListener('click', ()=> { conversation = { id: Date.now(), title: 'New chat', messages: conversation.messages.filter(m=>m.role==='system') }; saveConversation(); renderMessages(); });
+stopBtn.addEventListener('click', () => { if (controller) controller.abort(); });
+clearBtn.addEventListener('click', () => { 
+  conversation.messages = conversation.messages.filter(m => m.role === 'system'); 
+  saveConversation(); 
+  renderMessages(); 
+});
+newChatBtn.addEventListener('click', () => { 
+  conversation = { id: Date.now(), title: 'New chat', messages: conversation.messages.filter(m => m.role === 'system') }; 
+  saveConversation(); 
+  renderMessages(); 
+});
 
 // render
-function renderMessages(){
+function renderMessages() {
   messagesEl.innerHTML = '';
   chatTitle.innerText = conversation.title || 'New chat';
   conversation.messages.forEach(m => {
@@ -67,11 +75,11 @@ function renderMessages(){
       node.querySelectorAll('pre').forEach(pre => {
         if (pre.querySelector('.copy-btn')) return;
         const btn = document.createElement('button'); btn.className = 'copy-btn'; btn.textContent = 'Copy';
-        btn.addEventListener('click', ()=>{
+        btn.addEventListener('click', () => {
           const code = pre.querySelector('code') || pre;
           navigator.clipboard.writeText(code.textContent);
           btn.textContent = 'Copied!';
-          setTimeout(()=> btn.textContent='Copy', 1200);
+          setTimeout(() => btn.textContent = 'Copy', 1200);
         });
         pre.appendChild(btn);
       });
@@ -81,7 +89,9 @@ function renderMessages(){
   Prism.highlightAll();
 }
 
-function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escapeHtml(s) { 
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); 
+}
 function renderMarkdown(text) {
   let html = text.replace(/```(\w+)?\n([\s\S]*?)```/g, (m, lang, code) => {
     const cls = lang ? `language-${lang}` : '';
@@ -90,22 +100,26 @@ function renderMarkdown(text) {
   // preserve newlines outside code
   return html.split(/(<pre>[\s\S]*?<\/pre>)/g).map(chunk => {
     if (chunk.startsWith('<pre>')) return chunk;
-    return escapeHtml(chunk).replace(/\n/g,'<br>');
+    return escapeHtml(chunk).replace(/\n/g, '<br>');
   }).join('');
 }
 
-function saveConversation(){ try { localStorage.setItem(STORAGE_KEY, JSON.stringify(conversation)); } catch(e){} }
-function loadConversation(){ try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : null; } catch(e){ return null; } }
+function saveConversation() { 
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(conversation)); } catch(e) {} 
+}
+function loadConversation() { 
+  try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : null; } catch(e) { return null; } 
+}
 
 // streaming send
-async function sendPrompt(){
+async function sendPrompt() {
   if (isStreaming) return;
   const prompt = inputEl.value.trim();
   if (!prompt) return;
 
   // push user message
   conversation.messages.push({ role: 'user', content: prompt });
-  if (!conversation.title || conversation.title === 'New chat') conversation.title = prompt.split('\n')[0].slice(0,80);
+  if (!conversation.title || conversation.title === 'New chat') conversation.title = prompt.split('\n')[0].slice(0, 80);
   inputEl.value = '';
   saveConversation();
   renderMessages();
@@ -131,7 +145,7 @@ async function sendPrompt(){
 
     if (!resp.ok) {
       // fallback to sync endpoint or show error
-      const data = await resp.json().catch(()=>({ error: resp.statusText }));
+      const data = await resp.json().catch(() => ({ error: resp.statusText }));
       assistantMsg.content = data.reply || `Error: ${data.error || resp.status}`;
       saveConversation(); renderMessages();
       return;
@@ -156,7 +170,7 @@ async function sendPrompt(){
           const after = buffer.slice(markerIdx + FILE_MARKER.length).trim();
           // append uploaded link note (if available)
           if (after) assistantMsg.content += `.`;
-          buffer = ""; // reset buffer
+          buffer = "";
         } else {
           // no marker yet -> append all to assistant
           assistantMsg.content += buffer;

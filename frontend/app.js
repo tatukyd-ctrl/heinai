@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const API_STREAM = "/chat/stream";
   const API_SYNC = "/chat";
 
+  // Lấy các phần tử DOM
   const messagesEl = document.getElementById('messages');
   const inputEl = document.getElementById('input');
   const sendBtn = document.getElementById('send-btn');
@@ -14,11 +15,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const chatTitle = document.getElementById('chat-title');
 
   // Kiểm tra phần tử DOM
-  if (!messagesEl || !inputEl || !sendBtn || !stopBtn || !templateSelect || !toggleThemeBtn || !clearBtn || !newChatBtn || !chatTitle) {
-    console.error('Không tìm thấy một hoặc nhiều phần tử DOM:', {
-      messagesEl, inputEl, sendBtn, stopBtn, templateSelect, toggleThemeBtn, clearBtn, newChatBtn, chatTitle
-    });
-    return;
+  const requiredElements = {
+    messagesEl, inputEl, sendBtn, stopBtn, templateSelect, toggleThemeBtn, clearBtn, newChatBtn, chatTitle
+  };
+  for (const [key, value] of Object.entries(requiredElements)) {
+    if (!value) {
+      console.error(`Lỗi: Phần tử DOM '${key}' không tìm thấy. Kiểm tra ID trong index.html.`);
+      return;
+    }
   }
 
   const STORAGE_KEY = 'bot4code.conversation.v1';
@@ -32,6 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let controller = null;
   let isStreaming = false;
 
+  // Khởi tạo theme
   if (localStorage.getItem('theme') === 'light') {
     document.body.classList.add('light');
     toggleThemeBtn.textContent = '☀️';
@@ -39,28 +44,43 @@ document.addEventListener('DOMContentLoaded', () => {
     toggleThemeBtn.textContent = '🌙';
   }
 
+  // Sự kiện đổi theme
   toggleThemeBtn.addEventListener('click', () => {
+    console.log('Đổi theme được gọi');
     document.body.classList.toggle('light');
     toggleThemeBtn.textContent = document.body.classList.contains('light') ? '☀️' : '🌙';
     localStorage.setItem('theme', document.body.classList.contains('light') ? 'light' : 'dark');
   });
 
-  sendBtn.addEventListener('click', sendPrompt);
+  // Sự kiện gửi tin nhắn
+  sendBtn.addEventListener('click', () => {
+    console.log('Nút Gửi được bấm');
+    sendPrompt();
+  });
+
   inputEl.addEventListener('keydown', (e) => {
+    console.log('Phím được nhấn:', e.key, 'Shift:', e.shiftKey);
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+      console.log('Gửi tin nhắn bằng phím Enter');
       sendPrompt();
     }
   });
+
   stopBtn.addEventListener('click', () => {
+    console.log('Nút Dừng được bấm');
     if (controller) controller.abort();
   });
+
   clearBtn.addEventListener('click', () => {
+    console.log('Nút Xóa được bấm');
     conversation.messages = conversation.messages.filter(m => m.role === 'system');
     saveConversation();
     renderMessages();
   });
+
   newChatBtn.addEventListener('click', () => {
+    console.log('Nút Tạo cuộc trò chuyện mới được bấm');
     conversation = {
       id: Date.now(),
       title: 'Cuộc trò chuyện mới',
@@ -144,9 +164,15 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function sendPrompt() {
-    if (isStreaming) return;
+    if (isStreaming) {
+      console.warn('Đang stream, không thể gửi thêm tin nhắn');
+      return;
+    }
     const prompt = inputEl.value.trim();
-    if (!prompt) return;
+    if (!prompt) {
+      console.warn('Không gửi: Tin nhắn trống');
+      return;
+    }
 
     conversation.messages.push({ role: 'user', content: prompt });
     if (!conversation.title || conversation.title === 'Cuộc trò chuyện mới') {

@@ -1,65 +1,54 @@
 # backend/config.py
-import os, threading
-from dotenv import load_dotenv
+import os
+import logging
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ENV_PATH = os.path.join(BASE_DIR, ".env")
-if os.path.exists(ENV_PATH):
-    load_dotenv(ENV_PATH)
-else:
-    load_dotenv()  # fallback to environment
+# Thiết lập logging
+logger = logging.getLogger("bot4code.config")
+if not logger.handlers:
+    h = logging.StreamHandler()
+    h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logger.addHandler(h)
+logger.setLevel(logging.INFO)
 
-def _split_env(name: str):
-    raw = os.getenv(name, "")
-    return [x.strip() for x in raw.split(",") if x.strip()]
+# Lấy biến môi trường với giá trị mặc định
+try:
+    DROPBOX_ACCESS_TOKEN = os.getenv("DROPBOX_ACCESS_TOKEN", "")
+    if not DROPBOX_ACCESS_TOKEN:
+        logger.warning("Không tìm thấy DROPBOX_ACCESS_TOKEN trong biến môi trường")
 
-OPENAI_KEYS = _split_env("OPENAI_KEYS")
-GEMINI_KEYS = _split_env("GEMINI_KEYS")
-OPENROUTER_KEYS = _split_env("OPENROUTER_KEYS")
-OPENAI_FINE_TUNE_MODEL = os.getenv("OPENAI_FINE_TUNE_MODEL", "gpt-4o-mini")
+    DROPBOX_BASE_FOLDER = os.getenv("DROPBOX_BASE_FOLDER", "/my-app-chats")
+    logger.info(f"DROPBOX_BASE_FOLDER được đặt thành: {DROPBOX_BASE_FOLDER}")
 
-# Dropbox config
-DROPBOX_ACCESS_TOKEN = os.getenv("DROPBOX_ACCESS_TOKEN", None)
-DROPBOX_BASE_FOLDER = os.getenv("DROPBOX_BASE_FOLDER", "/")  # default root of app folder
+    # Xử lý các khóa API, đảm bảo danh sách không rỗng
+    OPENAI_KEYS = os.getenv("OPENAI_KEYS", "").split(",") if os.getenv("OPENAI_KEYS") else []
+    OPENAI_KEYS = [key.strip() for key in OPENAI_KEYS if key.strip()]  # Loại bỏ khoảng trắng
+    if not OPENAI_KEYS:
+        logger.warning("Không tìm thấy OPENAI_KEYS hoặc danh sách rỗng")
+    else:
+        logger.info(f"Tìm thấy {len(OPENAI_KEYS)} khóa OpenAI")
 
-_lock = threading.Lock()
-_openai_idx = 0
-_gemini_idx = 0
-_openrouter_idx = 0
+    GEMINI_KEYS = os.getenv("GEMINI_KEYS", "").split(",") if os.getenv("GEMINI_KEYS") else []
+    GEMINI_KEYS = [key.strip() for key in GEMINI_KEYS if key.strip()]
+    if not GEMINI_KEYS:
+        logger.warning("Không tìm thấy GEMINI_KEYS hoặc danh sách rỗng")
+    else:
+        logger.info(f"Tìm thấy {len(GEMINI_KEYS)} khóa Gemini")
 
-def has_keys(provider: str) -> bool:
-    p = provider.lower()
-    if p == "openai":
-        return len(OPENAI_KEYS) > 0
-    if p == "gemini":
-        return len(GEMINI_KEYS) > 0
-    if p == "openrouter":
-        return len(OPENROUTER_KEYS) > 0
-    return False
+    OPENROUTER_KEYS = os.getenv("OPENROUTER_KEYS", "").split(",") if os.getenv("OPENROUTER_KEYS") else []
+    OPENROUTER_KEYS = [key.strip() for key in OPENROUTER_KEYS if key.strip()]
+    if not OPENROUTER_KEYS:
+        logger.warning("Không tìm thấy OPENROUTER_KEYS hoặc danh sách rỗng")
+    else:
+        logger.info(f"Tìm thấy {len(OPENROUTER_KEYS)} khóa OpenRouter")
 
-def get_next_key(provider: str) -> str:
-    """
-    Round-robin, thread-safe. Raise ValueError if no keys configured.
-    """
-    global _openai_idx, _gemini_idx, _openrouter_idx
-    p = provider.lower()
-    with _lock:
-        if p == "openai":
-            if not OPENAI_KEYS:
-                raise ValueError("No OpenAI keys configured (OPENAI_KEYS).")
-            key = OPENAI_KEYS[_openai_idx % len(OPENAI_KEYS)]
-            _openai_idx += 1
-            return key
-        if p == "gemini":
-            if not GEMINI_KEYS:
-                raise ValueError("No Gemini keys configured (GEMINI_KEYS).")
-            key = GEMINI_KEYS[_gemini_idx % len(GEMINI_KEYS)]
-            _gemini_idx += 1
-            return key
-        if p == "openrouter":
-            if not OPENROUTER_KEYS:
-                raise ValueError("No OpenRouter keys configured (OPENROUTER_KEYS).")
-            key = OPENROUTER_KEYS[_openrouter_idx % len(OPENROUTER_KEYS)]
-            _openrouter_idx += 1
-            return key
-    raise ValueError(f"Unknown provider: {provider}")
+    # Model mặc định cho OpenAI
+    OPENAI_FINE_TUNE_MODEL = os.getenv("OPENAI_FINE_TUNE_MODEL", "gpt-4o-mini")
+    logger.info(f"OPENAI_FINE_TUNE_MODEL được đặt thành: {OPENAI_FINE_TUNE_MODEL}")
+
+    # Timeout cho các yêu cầu HTTP
+    REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", 60.0))
+    logger.info(f"REQUEST_TIMEOUT được đặt thành: {REQUEST_TIMEOUT} giây")
+
+except Exception as e:
+    logger.error(f"Lỗi khi đọc biến môi trường: {str(e)}")
+    raise RuntimeError(f"Không thể khởi tạo cấu hình: {str(e)}")

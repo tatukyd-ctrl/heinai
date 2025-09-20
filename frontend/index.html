@@ -1,51 +1,50 @@
-<!doctype html>
-<html lang="vi">
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>CodeBot — Streaming + Dropbox</title>
-
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
-
-  <link rel="stylesheet" href="style.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CodeBot</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css" integrity="sha512-tN7Ec6zAFaVSG3TpNAKtk4DOHNpSwKHxxrsiw4GHKESGPs5njn/0sMCUMl2svV4wo4BK/rCP7juYz+zx+l6oeaw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js" integrity="sha512-7Z9J3l1+EYfeaQ0h96BQanS6H6M0rJsSWavdYSXJFRpPL5W2Y7sL+grW8lensjW5S/3tQ6S6cDlJkh3wgrjV+Tw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 <body>
   <div id="app">
-    <aside class="sidebar">
+    <div class="sidebar">
       <div class="brand"><h1>CodeBot</h1></div>
-      <div id="conversations" class="conversations"></div>
-      <div class="sidebar-footer"><button id="new-chat" class="btn primary">+ New chat</button></div>
-    </aside>
-
-    <main class="chat-area">
-      <header class="chat-header">
-        <div><h2 id="chat-title">New chat</h2><div class="meta">Streaming + Dropbox</div></div>
+      <div class="conversations">
+        <div class="conv active">+ New chat</div>
+      </div>
+    </div>
+    <div class="chat-area">
+      <div class="chat-header">
+        <div>
+          <h2 id="chat-title">New chat</h2>
+          <div class="meta">Streaming + Dropbox</div>
+        </div>
         <div class="controls">
-          <select id="template-select"><option value="default">Default</option><option value="python_expert">Python Expert</option></select>
-          <button id="clear-chat" class="btn subtle">Clear</button>
-          <button id="toggle-theme" class="btn subtle">🌙</button>
+          <select id="template-select">
+            <option value="default">Default</option>
+            <option value="python_expert">Python Expert</option>
+          </select>
+          <button class="btn subtle" id="clear-chat">Clear</button>
+          <button class="btn subtle" id="toggle-theme">🌙</button>
         </div>
-      </header>
-
-      <section id="messages" class="messages"></section>
-
-      <form id="composer" class="composer" onsubmit="return false;">
+      </div>
+      <div class="messages" id="messages"></div>
+      <div class="composer">
         <div class="composer-controls">
-          <div class="hint">Shift+Enter = newline · Enter = send</div>
-          <div id="provider-hint" class="provider-hint">Auto</div>
+          <div>Shift+Enter = newline · Enter = send</div>
+          <div>Auto</div>
         </div>
-        <textarea id="input" placeholder="Viết câu hỏi hoặc dán code..."></textarea>
+        <textarea id="input"></textarea>
         <div class="composer-actions">
-          <button id="send-btn" class="btn primary">Send</button>
-          <button id="stop-btn" class="btn subtle" type="button">Stop</button>
+          <button class="btn primary" id="send-btn">Send</button>
+          <button class="btn subtle" id="stop-btn" disabled>Stop</button>
         </div>
-      </form>
-    </main>
+      </div>
+    </div>
   </div>
-
-  <script src="app.js"></script>
+  <script src="/static/app.js"></script>
 </body>
 </html>

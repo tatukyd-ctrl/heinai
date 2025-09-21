@@ -3,48 +3,992 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HeinBot</title>
-  <link rel="stylesheet" href="/static/style.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <title>HeinBot - AI Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <style>
+:root{
+  /* Dark theme colors */
+  --bg-dark: linear-gradient(135deg, #0c0f1a 0%, #1a1f2e 100%);
+  --panel-dark: rgba(15, 23, 42, 0.8);
+  --panel-dark-hover: rgba(30, 41, 59, 0.9);
+  --text-dark: #f1f5f9;
+  --text-muted-dark: #94a3b8;
+  --accent-primary: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+  --accent-secondary: linear-gradient(135deg, #06b6d4 0%, #10b981 100%);
+  --accent-glow: rgba(99, 102, 241, 0.3);
+  
+  /* Light theme colors */
+  --bg-light: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  --panel-light: rgba(255, 255, 255, 0.7);
+  --panel-light-hover: rgba(255, 255, 255, 0.9);
+  --text-light: #1e293b;
+  --text-muted-light: #64748b;
+  
+  /* Common */
+  --radius: 16px;
+  --radius-sm: 8px;
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  --shadow-hover: 0 16px 48px rgba(0, 0, 0, 0.2);
+  --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #app {
+  height: 100%;
+}
+
+body {
+  background: var(--bg-dark);
+  color: var(--text-dark);
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* Backdrop blur effect */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: 
+    radial-gradient(circle at 20% 50%, rgba(99, 102, 241, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(236, 72, 153, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 40% 80%, rgba(16, 185, 129, 0.1) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+#app {
+  display: flex;
+  gap: 24px;
+  padding: 24px;
+  min-height: 100vh;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 320px;
+  background: var(--panel-dark);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  box-shadow: var(--shadow);
+  transition: var(--transition);
+  position: relative;
+  overflow: hidden;
+}
+
+.sidebar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+}
+
+.brand {
+  text-align: center;
+  padding: 16px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.brand h1 {
+  font-size: 24px;
+  font-weight: 700;
+  background: var(--accent-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 4px;
+  position: relative;
+}
+
+.conversations {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.conversations::-webkit-scrollbar {
+  width: 4px;
+}
+
+.conversations::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.conversations::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+}
+
+.conv {
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: var(--transition);
+  position: relative;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+
+.conv:hover {
+  background: var(--panel-dark-hover);
+  border-color: rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
+}
+
+.conv.active {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.05));
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #e0e7ff;
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.2);
+}
+
+.conv.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent-primary);
+  border-radius: 0 2px 2px 0;
+}
+
+/* Buttons */
+.btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  cursor: pointer;
+  font-weight: 500;
+  transition: var(--transition);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  transition: left 0.5s;
+}
+
+.btn:hover::before {
+  left: 100%;
+}
+
+.btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+}
+
+.btn.subtle {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text-muted-dark);
+}
+
+.btn.primary {
+  background: var(--accent-primary);
+  border: none;
+  color: white;
+  font-weight: 600;
+  box-shadow: 0 4px 20px var(--accent-glow);
+}
+
+.btn.primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px var(--accent-glow);
+}
+
+/* Chat area */
+.chat-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-dark);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  position: relative;
+}
+
+.chat-area::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+}
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.chat-header h2 {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.meta {
+  color: var(--text-muted-dark);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.meta::before {
+  content: '●';
+  color: #10b981;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+select {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+select:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+select:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+/* Messages */
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.messages::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.message {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  animation: messageSlide 0.4s ease-out;
+}
+
+@keyframes messageSlide {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.bubble {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: 16px 20px;
+  border-radius: var(--radius);
+  max-width: 80%;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  position: relative;
+  transition: var(--transition);
+}
+
+.bubble:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.message.user {
+  flex-direction: row-reverse;
+}
+
+.message.user .avatar {
+  background: var(--accent-primary);
+}
+
+.message.user .bubble {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.1));
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.15);
+}
+
+.bubble .content {
+  line-height: 1.7;
+  font-size: 14px;
+}
+
+.bubble pre {
+  margin: 16px 0;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: var(--radius-sm);
+  overflow: auto;
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.bubble pre code {
+  display: block;
+  white-space: pre;
+  font-family: 'Fira Code', 'JetBrains Mono', Monaco, 'Cascadia Code', 'Roboto Mono', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Composer */
+.composer {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.composer-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--text-muted-dark);
+  font-size: 13px;
+}
+
+textarea#input {
+  width: 100%;
+  min-height: 100px;
+  max-height: 300px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: inherit;
+  resize: vertical;
+  outline: none;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  transition: var(--transition);
+}
+
+textarea#input:focus {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(99, 102, 241, 0.5);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+textarea#input::placeholder {
+  color: var(--text-muted-dark);
+}
+
+.composer-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+/* Copy button */
+.copy-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-size: 12px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--accent-secondary);
+  color: white;
+  cursor: pointer;
+  font-weight: 500;
+  transition: var(--transition);
+  opacity: 0.8;
+}
+
+.copy-btn:hover {
+  opacity: 1;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+/* Light theme */
+body.light {
+  background: var(--bg-light);
+  color: var(--text-light);
+}
+
+body.light::before {
+  background: 
+    radial-gradient(circle at 20% 50%, rgba(99, 102, 241, 0.05) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(236, 72, 153, 0.05) 0%, transparent 50%),
+    radial-gradient(circle at 40% 80%, rgba(16, 185, 129, 0.05) 0%, transparent 50%);
+}
+
+body.light .sidebar {
+  background: var(--panel-light);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+body.light .chat-area {
+  background: var(--panel-light);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+body.light .bubble {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: var(--text-light);
+}
+
+body.light .bubble pre {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+body.light textarea#input {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: var(--text-light);
+}
+
+body.light .meta {
+  color: var(--text-muted-light);
+}
+
+body.light .btn.subtle {
+  color: var(--text-muted-light);
+}
+
+body.light .conv {
+  color: var(--text-light);
+}
+
+body.light .conv:hover {
+  background: var(--panel-light-hover);
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .sidebar {
+    width: 280px;
+  }
+  
+  #app {
+    gap: 16px;
+    padding: 16px;
+  }
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    display: none;
+  }
+  
+  #app {
+    padding: 12px;
+  }
+  
+  .chat-header {
+    padding: 16px;
+  }
+  
+  .messages {
+    padding: 16px;
+  }
+  
+  .composer {
+    padding: 16px;
+  }
+  
+  .bubble {
+    max-width: 90%;
+  }
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Loading animation */
+@keyframes shimmer {
+  0% {
+    background-position: -200px 0;
+  }
+  100% {
+    background-position: calc(200px + 100%) 0;
+  }
+}
+
+.loading {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.1) 50%, rgba(255, 255, 255, 0.05) 100%);
+  background-size: 200px 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Focus styles */
+*:focus-visible {
+  outline: 2px solid rgba(99, 102, 241, 0.5);
+  outline-offset: 2px;
+}
+  </style>
 </head>
 <body>
   <div id="app">
     <div class="sidebar">
-      <div class="brand"><h1>HeinBot</h1></div>
+      <div class="brand">
+        <h1>HeinBot</h1>
+        <div style="font-size: 12px; color: var(--text-muted-dark); margin-top: 4px;">AI Assistant</div>
+      </div>
       <div class="conversations">
-        <div class="conv active" id="new-chat">+ Tạo cuộc trò chuyện mới</div>
+        <div class="conv active" id="new-chat">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span>✨</span>
+            <span>Tạo cuộc trò chuyện mới</span>
+          </div>
+        </div>
       </div>
     </div>
+    
     <div class="chat-area">
       <div class="chat-header">
         <div>
           <h2 id="chat-title">Cuộc trò chuyện mới</h2>
-          <div class="meta">SUPER SMART HeinBot V1.0</div>
+          <div class="meta">Streaming • Dropbox • GPT-4</div>
         </div>
         <div class="controls">
           <select id="template-select">
-            <option value="default">Mặc định</option>
-            <option value="python_expert">Chuyên gia Python</option>
+            <option value="default">🤖 Mặc định</option>
+            <option value="python_expert">🐍 Chuyên gia Python</option>
+            <option value="creative">🎨 Sáng tạo</option>
+            <option value="analyst">📊 Phân tích</option>
           </select>
-          <button class="btn subtle" id="clear-chat">Xóa</button>
+          <button class="btn subtle" id="clear-chat">
+            <span>🗑️ Xóa</span>
+          </button>
           <button class="btn subtle" id="toggle-theme">🌙</button>
         </div>
       </div>
-      <div class="messages" id="messages"></div>
+      
+      <div class="messages" id="messages">
+        <!-- Messages sẽ được render tại đây -->
+      </div>
+      
       <div class="composer">
         <div class="composer-controls">
-          <div>Shift+Enter = xuống dòng · Enter = gửi</div>
-          <div>Tự động</div>
+          <div>
+            <span style="font-weight: 500;">💡 Mẹo:</span>
+            <span>Shift+Enter = xuống dòng • Enter = gửi</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="status-indicator" style="width: 8px; height: 8px; background: #10b981; border-radius: 50%; animation: pulse 2s infinite;"></span>
+            <span>Sẵn sàng</span>
+          </div>
         </div>
-        <textarea id="input"></textarea>
+        <textarea id="input" placeholder="Nhập tin nhắn của bạn..."></textarea>
         <div class="composer-actions">
-          <button class="btn primary" id="send-btn">Gửi</button>
-          <button class="btn subtle" id="stop-btn" disabled>Dừng</button>
+          <button class="btn primary" id="send-btn">
+            <span style="display: flex; align-items: center; gap: 6px;">
+              <span>🚀</span>
+              <span>Gửi</span>
+            </span>
+          </button>
+          <button class="btn subtle" id="stop-btn" disabled>
+            <span style="display: flex; align-items: center; gap: 6px;">
+              <span>⏹️</span>
+              <span>Dừng</span>
+            </span>
+          </button>
         </div>
       </div>
     </div>
   </div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <script src="/static/app.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-css.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  
+  <script>
+// frontend/app.js
+document.addEventListener('DOMContentLoaded', () => {
+  const API_STREAM = "/chat/stream";
+  const API_SYNC = "/chat";
+
+  // Lấy các phần tử DOM
+  const messagesEl = document.getElementById('messages');
+  const inputEl = document.getElementById('input');
+  const sendBtn = document.getElementById('send-btn');
+  const stopBtn = document.getElementById('stop-btn');
+  const templateSelect = document.getElementById('template-select');
+  const toggleThemeBtn = document.getElementById('toggle-theme');
+  const clearBtn = document.getElementById('clear-chat');
+  const newChatBtn = document.getElementById('new-chat');
+  const chatTitle = document.getElementById('chat-title');
+
+  // Kiểm tra phần tử DOM
+  const requiredElements = {
+    messagesEl, inputEl, sendBtn, stopBtn, templateSelect, toggleThemeBtn, clearBtn, newChatBtn, chatTitle
+  };
+  for (const [key, value] of Object.entries(requiredElements)) {
+    if (!value) {
+      console.error(`Lỗi: Phần tử DOM '${key}' không tìm thấy. Kiểm tra ID trong index.html.`);
+      return;
+    }
+  }
+
+  const STORAGE_KEY = 'bot4code.conversation.v1';
+
+  let conversation = loadConversation() || {
+    id: Date.now(),
+    title: "Cuộc trò chuyện mới",
+    messages: [{ role: 'system', content: 'Hello' }]
+  };
+
+  let controller = null;
+  let isStreaming = false;
+
+  // Khởi tạo theme
+  if (localStorage.getItem('theme') === 'light') {
+    document.body.classList.add('light');
+    toggleThemeBtn.innerHTML = '<span>☀️</span>';
+  } else {
+    toggleThemeBtn.innerHTML = '<span>🌙</span>';
+  }
+
+  // Sự kiện đổi theme
+  toggleThemeBtn.addEventListener('click', () => {
+    console.log('Đổi theme được gọi');
+    document.body.classList.toggle('light');
+    const isLight = document.body.classList.contains('light');
+    toggleThemeBtn.innerHTML = isLight ? '<span>☀️</span>' : '<span>🌙</span>';
+    localStorage.setItem('theme', isLight ? 'light' : 'dark');
+  });
+
+  // Sự kiện gửi tin nhắn
+  sendBtn.addEventListener('click', () => {
+    console.log('Nút Gửi được bấm');
+    sendPrompt();
+  });
+
+  inputEl.addEventListener('keydown', (e) => {
+    console.log('Phím được nhấn:', e.key, 'Shift:', e.shiftKey);
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      console.log('Gửi tin nhắn bằng phím Enter');
+      sendPrompt();
+    }
+  });
+
+  stopBtn.addEventListener('click', () => {
+    console.log('Nút Dừng được bấm');
+    if (controller) controller.abort();
+  });
+
+  clearBtn.addEventListener('click', () => {
+    console.log('Nút Xóa được bấm');
+    conversation.messages = conversation.messages.filter(m => m.role === 'system');
+    saveConversation();
+    renderMessages();
+  });
+
+  newChatBtn.addEventListener('click', () => {
+    console.log('Nút Tạo cuộc trò chuyện mới được bấm');
+    conversation = {
+      id: Date.now(),
+      title: 'Cuộc trò chuyện mới',
+      messages: conversation.messages.filter(m => m.role === 'system')
+    };
+    saveConversation();
+    renderMessages();
+  });
+
+  function renderMessages() {
+    messagesEl.innerHTML = '';
+    chatTitle.innerText = conversation.title || 'Cuộc trò chuyện mới';
+    conversation.messages.forEach(m => {
+      if (m.role === 'system') return; // Skip system messages
+      
+      const node = document.createElement('div');
+      node.className = 'message ' + (m.role === 'user' ? 'user' : 'bot');
+      
+      // Add avatar
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      avatar.textContent = m.role === 'user' ? '👤' : '🤖';
+      
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      const content = document.createElement('div');
+      content.className = 'content';
+      
+      if (m.role === 'user') {
+        content.textContent = m.content;
+      } else {
+        content.innerHTML = renderMarkdown(m.content);
+      }
+      
+      bubble.appendChild(content);
+      node.appendChild(avatar);
+      node.appendChild(bubble);
+      messagesEl.appendChild(node);
+
+      if (m.role !== 'user') {
+        node.querySelectorAll('pre').forEach(pre => {
+          if (pre.querySelector('.copy-btn')) return;
+          const btn = document.createElement('button');
+          btn.className = 'copy-btn';
+          btn.textContent = '📋 Sao chép';
+          btn.addEventListener('click', () => {
+            const code = pre.querySelector('code') || pre;
+            navigator.clipboard.writeText(code.textContent);
+            btn.textContent = '✅ Đã sao chép!';
+            setTimeout(() => btn.textContent = '📋 Sao chép', 1200);
+          });
+          pre.appendChild(btn);
+        });
+      }
+    });
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    if (typeof Prism !== 'undefined') {
+      Prism.highlightAll();
+    } else {
+      console.warn('Prism.js không tải được, bỏ qua tô màu mã nguồn');
+    }
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function renderMarkdown(text) {
+    let html = text.replace(/```(\w+)?\n([\s\S]*?)```/g, (m, lang, code) => {
+      const cls = lang ? `language-${lang}` : '';
+      return `<pre><code class="${cls}">${escapeHtml(code)}</code></pre>`;
+    });
+    return html.split(/(<pre>[\s\S]*?<\/pre>)/g).map(chunk => {
+      if (chunk.startsWith('<pre>')) return chunk;
+      return escapeHtml(chunk).replace(/\n/g, '<br>');
+    }).join('');
+  }
+
+  function saveConversation() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(conversation));
+    } catch (e) {
+      console.error('Lỗi lưu cuộc trò chuyện:', e);
+    }
+  }
+
+  function loadConversation() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      console.error('Lỗi tải cuộc trò chuyện:', e);
+      return null;
+    }
+  }
+
+  async function sendPrompt() {
+    if (isStreaming) {
+      console.warn('Đang stream, không thể gửi thêm tin nhắn');
+      return;
+    }
+    const prompt = inputEl.value.trim();
+    if (!prompt) {
+      console.warn('Không gửi: Tin nhắn trống');
+      return;
+    }
+
+    conversation.messages.push({ role: 'user', content: prompt });
+    if (!conversation.title || conversation.title === 'Cuộc trò chuyện mới') {
+      conversation.title = prompt.split('\n')[0].slice(0, 80);
+    }
+    inputEl.value = '';
+    saveConversation();
+    renderMessages();
+
+    const assistantMsg = { role: 'assistant', content: '' };
+    conversation.messages.push(assistantMsg);
+    saveConversation();
+    renderMessages();
+
+    isStreaming = true;
+    controller = new AbortController();
+    setLoading(true);
+
+    try {
+      const payload = { messages: conversation.messages, template: templateSelect.value, provider: 'auto' };
+      console.log('Gửi yêu cầu tới', API_STREAM, 'với payload:', payload);
+      const resp = await fetch(API_STREAM, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({ error: resp.statusText }));
+        console.error('Lỗi API:', data);
+        assistantMsg.content = data.reply || `Lỗi: ${data.error || resp.status}`;
+        saveConversation();
+        renderMessages();
+        return;
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const FILE_MARKER = "[FILE_UPLOADED]";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true });
+          buffer += chunk;
+          const markerIdx = buffer.indexOf(FILE_MARKER);
+          if (markerIdx !== -1) {
+            const before = buffer.slice(0, markerIdx);
+            assistantMsg.content += before;
+            const after = buffer.slice(markerIdx + FILE_MARKER.length).trim();
+            if (after) assistantMsg.content += `.`;
+            buffer = "";
+          } else {
+            assistantMsg.content += buffer;
+            buffer = "";
+          }
+          saveConversation();
+          renderMessages();
+        }
+      }
+      if (buffer) {
+        assistantMsg.content += buffer;
+        saveConversation();
+        renderMessages();
+      }
+    } catch (err) {
+      console.error('Lỗi fetch:', err);
+      if (err.name === 'AbortError') {
+        assistantMsg.content += "\n\n[Đã dừng stream bởi người dùng]";
+      } else {
+        assistantMsg.content += `\n\n[Lỗi mạng] ${err.message}`;
+      }
+      saveConversation();
+      renderMessages();
+    } finally {
+      isStreaming = false;
+      controller = null;
+      setLoading(false);
+    }
+  }
+
+  function setLoading(isLoading) {
+    sendBtn.disabled = isLoading;
+    stopBtn.disabled = !isLoading;
+    sendBtn.innerHTML = isLoading ? 
+      '<span style="display: flex; align-items: center; gap: 6px;"><span>⏳</span><span>Đang tải...</span></span>' : 
+      '<span style="display: flex; align-items: center; gap: 6px;"><span>🚀</span><span>Gửi</span></span>';
+  }
+
+  renderMessages();
+});
+  </script>
 </body>
 </html>

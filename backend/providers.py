@@ -362,7 +362,7 @@ async def call_openrouter(messages: List[Dict[str, str]]) -> str:
                         "X-Title": "HeinBot"
                     },
                     json={
-                        "model": config.OPENROUTER_MODEL,
+                        "model": "x-ai/grok-4-fast:free",
                         "messages": messages,
                         "max_tokens": config.DEFAULT_MAX_TOKENS,
                         "temperature": config.DEFAULT_TEMPERATURE,

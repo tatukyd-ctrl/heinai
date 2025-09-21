@@ -2,389 +2,485 @@
 import asyncio
 import json
 import logging
-from typing import List, Dict, AsyncGenerator
-import httpx
 import random
+import time
+from typing import List, Dict, AsyncGenerator, Optional, Any
+import httpx
+from datetime import datetime, timedelta
 
-# Import từ config - nếu REQUEST_TIMEOUT chưa định nghĩa, đặt mặc định
-try:
-    from backend.config import (
-        OPENAI_KEYS, GEMINI_KEYS, OPENROUTER_KEYS, OPENAI_FINE_TUNE_MODEL,
-        REQUEST_TIMEOUT  # Nếu không có, sẽ dùng mặc định dưới
-    )
-except ImportError as e:
-    logging.error(f"Lỗi import config: {e}")
-    OPENAI_KEYS = []
-    GEMINI_KEYS = []
-    OPENROUTER_KEYS = []
-    OPENAI_FINE_TUNE_MODEL = "gpt-4o-mini"
-    REQUEST_TIMEOUT = 60.0
+from backend.config import config
 
-# Đặt mặc định nếu không có
-REQUEST_TIMEOUT = getattr(globals(), 'REQUEST_TIMEOUT', 60.0)
-RETRY_SLEEP = 0.5
+logger = logging.getLogger("heinbot.providers")
 
-logger = logging.getLogger("bot4code.providers")
-if not logger.handlers:
-    h = logging.StreamHandler()
-    h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-    logger.addHandler(h)
-logger.setLevel(logging.INFO)
+class RateLimiter:
+    """Simple rate limiter for API requests"""
+    
+    def __init__(self):
+        self.requests = []
+    
+    async def wait_if_needed(self, per_minute: int = 60):
+        """Wait if rate limit would be exceeded"""
+        now = time.time()
+        # Remove old requests (older than 1 minute)
+        self.requests = [req_time for req_time in self.requests if now - req_time < 60]
+        
+        if len(self.requests) >= per_minute:
+            sleep_time = 60 - (now - self.requests[0]) + 0.1
+            if sleep_time > 0:
+                logger.info(f"Rate limiting: waiting {sleep_time:.1f}s")
+                await asyncio.sleep(sleep_time)
+        
+        self.requests.append(now)
 
-def _safe_extract_openai(resp_json: dict) -> str:
-    """Trích xuất nội dung từ phản hồi OpenAI."""
-    try:
-        return resp_json["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError):
-        logger.warning("Phản hồi OpenAI không đúng định dạng, trả về JSON thô")
-        return json.dumps(resp_json)
+rate_limiter = RateLimiter()
 
-def _safe_extract_gemini(resp_json: dict) -> str:
-    """Trích xuất nội dung từ phản hồi Gemini."""
-    try:
-        if "candidates" in resp_json and resp_json["candidates"]:
-            candidate = resp_json["candidates"][0]
-            content = candidate.get("content", {})
-            if "parts" in content:
-                return "".join(part.get("text", "") for part in content["parts"])
-            return content.get("text", str(content))
-    except Exception:
-        pass
-    logger.warning("Phản hồi Gemini không đúng định dạng, trả về JSON thô")
-    return json.dumps(resp_json)
+class ProviderError(Exception):
+    """Base exception for provider errors"""
+    pass
 
-def _safe_extract_openrouter(resp_json: dict) -> str:
-    """Trích xuất nội dung từ phản hồi OpenRouter."""
-    try:
-        return resp_json["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError):
-        logger.warning("Phản hồi OpenRouter không đúng định dạng, trả về JSON thô")
-        return json.dumps(resp_json)
+class NoProvidersAvailableError(ProviderError):
+    """Raised when no providers are available"""
+    pass
 
-def has_keys(provider: str) -> bool:
-    """Kiểm tra xem có khóa API cho nhà cung cấp không."""
-    p = provider.lower()
-    if p == "openai":
-        return len(OPENAI_KEYS) > 0
-    if p == "gemini":
-        return len(GEMINI_KEYS) > 0
-    if p == "openrouter":
-        return len(OPENROUTER_KEYS) > 0
-    return False
+class APIKeyError(ProviderError):
+    """Raised when API key is invalid or exhausted"""
+    pass
 
-def get_next_key(provider: str) -> str:
-    """Lấy khóa API tiếp theo (ngẫu nhiên từ danh sách)."""
-    p = provider.lower()
-    if p == "openai" and OPENAI_KEYS:
-        return random.choice(OPENAI_KEYS)
-    if p == "gemini" and GEMINI_KEYS:
-        return random.choice(GEMINI_KEYS)
-    if p == "openrouter" and OPENROUTER_KEYS:
-        return random.choice(OPENROUTER_KEYS)
-    raise ValueError(f"Không có khóa cho nhà cung cấp {provider}")
+def get_random_key(provider: str) -> str:
+    """Get a random API key for the specified provider"""
+    provider = provider.lower()
+    
+    if provider == "openai" and config.OPENAI_KEYS:
+        return random.choice(config.OPENAI_KEYS)
+    elif provider == "gemini" and config.GEMINI_KEYS:
+        return random.choice(config.GEMINI_KEYS)
+    elif provider == "openrouter" and config.OPENROUTER_KEYS:
+        return random.choice(config.OPENROUTER_KEYS)
+    elif provider == "anthropic" and config.ANTHROPIC_KEYS:
+        return random.choice(config.ANTHROPIC_KEYS)
+    
+    raise APIKeyError(f"No API keys available for provider: {provider}")
 
-# ------------------------- OpenAI Non-Stream -------------------------
-async def call_openai_full_messages(messages: List[Dict[str, str]]) -> str:
-    if not has_keys("openai"):
-        logger.error("Không có khóa OpenAI được cấu hình")
-        raise RuntimeError("Không có khóa OpenAI được cấu hình")
-    last_exc = None
-    attempts = len(OPENAI_KEYS)
-    for i in range(attempts):
-        key = get_next_key("openai")
-        url = "https://api.openai.com/v1/chat/completions"
-        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        payload = {
-            "model": OPENAI_FINE_TUNE_MODEL,
-            "messages": messages,
-            "max_tokens": 1500,
-            "temperature": 0.1,
-        }
+def format_messages_for_provider(messages: List[Dict[str, str]], provider: str) -> Any:
+    """Format messages according to provider requirements"""
+    provider = provider.lower()
+    
+    if provider == "gemini":
+        # Gemini uses a different message format
+        contents = []
+        for msg in messages:
+            if msg["role"] == "system":
+                # Include system message as first user message for Gemini
+                contents.append({
+                    "role": "user",
+                    "parts": [{"text": f"System: {msg['content']}"}]
+                })
+            elif msg["role"] in ["user", "assistant"]:
+                role = "user" if msg["role"] == "user" else "model"
+                contents.append({
+                    "role": role,
+                    "parts": [{"text": msg["content"]}]
+                })
+        return contents
+    
+    # Standard OpenAI format for other providers
+    return messages
+
+async def call_openai(messages: List[Dict[str, str]]) -> str:
+    """Call OpenAI API"""
+    if not config.has_provider("openai"):
+        raise APIKeyError("OpenAI keys not configured")
+    
+    await rate_limiter.wait_if_needed(config.RATE_LIMIT_PER_MINUTE)
+    
+    for attempt in range(config.MAX_RETRIES):
         try:
-            logger.info(f"Thử gọi OpenAI (không stream), lần {i+1}/{attempts}")
-            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-                r = await client.post(url, json=payload, headers=headers)
-                r.raise_for_status()
-                logger.info("Gọi OpenAI thành công")
-                return _safe_extract_openai(r.json())
+            key = get_random_key("openai")
+            
+            async with httpx.AsyncClient(timeout=config.REQUEST_TIMEOUT) as client:
+                response = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": config.OPENAI_MODEL,
+                        "messages": messages,
+                        "max_tokens": config.DEFAULT_MAX_TOKENS,
+                        "temperature": config.DEFAULT_TEMPERATURE,
+                    }
+                )
+                
+                response.raise_for_status()
+                data = response.json()
+                
+                return data["choices"][0]["message"]["content"]
+                
         except httpx.HTTPStatusError as e:
-            status = e.response.status_code if e.response else None
-            logger.warning(f"OpenAI trả về trạng thái {status}, thử khóa tiếp theo")
-            last_exc = e
-            if status in (429, 401, 403):
-                await asyncio.sleep(RETRY_SLEEP)
-                continue
-            raise
+            if e.response.status_code in [401, 403, 429]:
+                logger.warning(f"OpenAI API error {e.response.status_code}, attempt {attempt + 1}")
+                if attempt < config.MAX_RETRIES - 1:
+                    await asyncio.sleep(config.RETRY_DELAY * (2 ** attempt))
+                    continue
+            raise ProviderError(f"OpenAI API error: {e.response.status_code}")
+        
         except Exception as e:
-            logger.exception(f"Gọi OpenAI thất bại, lần {i+1}/{attempts}")
-            last_exc = e
-            await asyncio.sleep(RETRY_SLEEP)
-            continue
-    logger.error("Tất cả các lần thử OpenAI đều thất bại")
-    raise last_exc or RuntimeError("Gọi OpenAI thất bại")
+            logger.error(f"OpenAI request failed: {e}")
+            if attempt < config.MAX_RETRIES - 1:
+                await asyncio.sleep(config.RETRY_DELAY)
+                continue
+            raise ProviderError(f"OpenAI request failed: {e}")
+    
+    raise ProviderError("OpenAI: All retry attempts failed")
 
-# ------------------------- OpenAI Stream -------------------------
-async def stream_openai_messages(messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
-    if not has_keys("openai"):
-        logger.error("Không có khóa OpenAI được cấu hình")
-        raise RuntimeError("Không có khóa OpenAI được cấu hình")
-    last_exc = None
-    attempts = len(OPENAI_KEYS)
-    for i in range(attempts):
-        key = get_next_key("openai")
-        url = "https://api.openai.com/v1/chat/completions"
-        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        payload = {
-            "model": OPENAI_FINE_TUNE_MODEL,
-            "messages": messages,
-            "max_tokens": 1500,
-            "temperature": 0.1,
-            "stream": True,
-        }
+async def stream_openai(messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
+    """Stream from OpenAI API"""
+    if not config.has_provider("openai"):
+        raise APIKeyError("OpenAI keys not configured")
+    
+    await rate_limiter.wait_if_needed(config.RATE_LIMIT_PER_MINUTE)
+    
+    for attempt in range(config.MAX_RETRIES):
         try:
-            logger.info(f"Thử stream OpenAI, lần {i+1}/{attempts}")
-            async with httpx.AsyncClient(timeout=None) as client:  # Không timeout cho stream
-                async with client.stream("POST", url, json=payload, headers=headers) as resp:
-                    resp.raise_for_status()
+            key = get_random_key("openai")
+            
+            async with httpx.AsyncClient(timeout=config.STREAM_TIMEOUT) as client:
+                async with client.stream(
+                    "POST",
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": config.OPENAI_MODEL,
+                        "messages": messages,
+                        "max_tokens": config.DEFAULT_MAX_TOKENS,
+                        "temperature": config.DEFAULT_TEMPERATURE,
+                        "stream": True,
+                    }
+                ) as response:
+                    
+                    response.raise_for_status()
+                    
                     buffer = ""
-                    async for chunk_bytes in resp.aiter_bytes():
-                        if not chunk_bytes:
+                    async for chunk in response.aiter_bytes():
+                        if not chunk:
                             continue
-                        chunk = chunk_bytes.decode("utf-8", errors="ignore")
-                        buffer += chunk
+                            
+                        buffer += chunk.decode("utf-8", errors="ignore")
+                        
                         while "\n" in buffer:
                             line, buffer = buffer.split("\n", 1)
                             line = line.strip()
-                            if not line or line.startswith(":"):  # Bỏ qua comment SSE
+                            
+                            if not line or line.startswith(":"):
                                 continue
+                                
                             if line.startswith("data: "):
-                                data_str = line[6:].strip()
+                                data_str = line[6:]
                             else:
                                 data_str = line
-                            if data_str in ("[DONE]", ""):
+                            
+                            if data_str in ["[DONE]", ""]:
                                 return
+                            
                             try:
                                 data = json.loads(data_str)
                                 delta = data.get("choices", [{}])[0].get("delta", {})
                                 content = delta.get("content")
+                                
                                 if content:
                                     yield content
+                                    
                             except json.JSONDecodeError:
-                                continue  # Bỏ qua JSON không hợp lệ
-            logger.info("Stream OpenAI thành công")
-            return
+                                continue
+                    
+                    return  # Success
+                    
         except httpx.HTTPStatusError as e:
-            status = e.response.status_code if e.response else None
-            logger.warning(f"OpenAI stream trả về trạng thái {status}, thử khóa tiếp theo")
-            last_exc = e
-            if status in (429, 401, 403):
-                await asyncio.sleep(RETRY_SLEEP)
-                continue
-            raise
+            if e.response.status_code in [401, 403, 429]:
+                logger.warning(f"OpenAI stream error {e.response.status_code}, attempt {attempt + 1}")
+                if attempt < config.MAX_RETRIES - 1:
+                    await asyncio.sleep(config.RETRY_DELAY * (2 ** attempt))
+                    continue
+            raise ProviderError(f"OpenAI stream error: {e.response.status_code}")
+        
         except Exception as e:
-            logger.exception(f"Stream OpenAI thất bại, lần {i+1}/{attempts}")
-            last_exc = e
-            await asyncio.sleep(RETRY_SLEEP)
-            continue
-    logger.error("Tất cả các lần thử stream OpenAI đều thất bại")
-    raise last_exc or RuntimeError("Stream OpenAI thất bại")
+            logger.error(f"OpenAI stream failed: {e}")
+            if attempt < config.MAX_RETRIES - 1:
+                await asyncio.sleep(config.RETRY_DELAY)
+                continue
+            raise ProviderError(f"OpenAI stream failed: {e}")
+    
+    raise ProviderError("OpenAI stream: All retry attempts failed")
 
-# ------------------------- Gemini Non-Stream (Cập nhật endpoint 2025) -------------------------
-async def call_gemini_full_messages(messages: List[Dict[str, str]]) -> str:
-    if not has_keys("gemini"):
-        logger.error("Không có khóa Gemini được cấu hình")
-        raise RuntimeError("Không có khóa Gemini được cấu hình")
-    last_exc = None
-    attempts = len(GEMINI_KEYS)
-    for i in range(attempts):
-        key = get_next_key("gemini")
-        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent"
-        headers = {"Content-Type": "application/json"}
-        # Chuyển messages thành contents cho Gemini
-        contents = [{"parts": [{"text": m["content"]} for m in messages]}]
-        payload = {
-            "contents": contents,
-            "generationConfig": {
-                "temperature": 0.1,
-                "maxOutputTokens": 1500,
-            },
-        }
+async def call_anthropic(messages: List[Dict[str, str]]) -> str:
+    """Call Anthropic Claude API"""
+    if not config.has_provider("anthropic"):
+        raise APIKeyError("Anthropic keys not configured")
+    
+    await rate_limiter.wait_if_needed(config.RATE_LIMIT_PER_MINUTE)
+    
+    # Convert messages to Anthropic format
+    system_message = ""
+    anthropic_messages = []
+    
+    for msg in messages:
+        if msg["role"] == "system":
+            system_message = msg["content"]
+        else:
+            anthropic_messages.append({
+                "role": msg["role"],
+                "content": msg["content"]
+            })
+    
+    for attempt in range(config.MAX_RETRIES):
         try:
-            logger.info(f"Thử gọi Gemini, lần {i+1}/{attempts}")
-            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-                r = await client.post(f"{url}?key={key}", json=payload, headers=headers)
-                r.raise_for_status()
-                logger.info("Gọi Gemini thành công")
-                return _safe_extract_gemini(r.json())
+            key = get_random_key("anthropic")
+            
+            payload = {
+                "model": config.ANTHROPIC_MODEL,
+                "max_tokens": config.DEFAULT_MAX_TOKENS,
+                "temperature": config.DEFAULT_TEMPERATURE,
+                "messages": anthropic_messages
+            }
+            
+            if system_message:
+                payload["system"] = system_message
+            
+            async with httpx.AsyncClient(timeout=config.REQUEST_TIMEOUT) as client:
+                response = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": key,
+                        "Content-Type": "application/json",
+                        "anthropic-version": "2023-06-01"
+                    },
+                    json=payload
+                )
+                
+                response.raise_for_status()
+                data = response.json()
+                
+                return data["content"][0]["text"]
+                
         except httpx.HTTPStatusError as e:
-            status = e.response.status_code if e.response else None
-            logger.warning(f"Gemini trả về trạng thái {status}, thử khóa tiếp theo")
-            last_exc = e
-            if status in (429, 401, 403):
-                await asyncio.sleep(RETRY_SLEEP)
-                continue
-            raise
+            if e.response.status_code in [401, 403, 429]:
+                logger.warning(f"Anthropic API error {e.response.status_code}, attempt {attempt + 1}")
+                if attempt < config.MAX_RETRIES - 1:
+                    await asyncio.sleep(config.RETRY_DELAY * (2 ** attempt))
+                    continue
+            raise ProviderError(f"Anthropic API error: {e.response.status_code}")
+        
         except Exception as e:
-            logger.exception(f"Gọi Gemini thất bại, lần {i+1}/{attempts}")
-            last_exc = e
-            await asyncio.sleep(RETRY_SLEEP)
-            continue
-    logger.error("Tất cả các lần thử Gemini đều thất bại")
-    raise last_exc or RuntimeError("Gọi Gemini thất bại")
+            logger.error(f"Anthropic request failed: {e}")
+            if attempt < config.MAX_RETRIES - 1:
+                await asyncio.sleep(config.RETRY_DELAY)
+                continue
+            raise ProviderError(f"Anthropic request failed: {e}")
+    
+    raise ProviderError("Anthropic: All retry attempts failed")
 
-# ------------------------- Gemini Stream (Giả lập vì Gemini không hỗ trợ stream thực) -------------------------
-async def stream_gemini_messages(messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
-    content = await call_gemini_full_messages(messages)
+async def call_gemini(messages: List[Dict[str, str]]) -> str:
+    """Call Google Gemini API"""
+    if not config.has_provider("gemini"):
+        raise APIKeyError("Gemini keys not configured")
+    
+    await rate_limiter.wait_if_needed(config.RATE_LIMIT_PER_MINUTE)
+    
+    for attempt in range(config.MAX_RETRIES):
+        try:
+            key = get_random_key("gemini")
+            formatted_messages = format_messages_for_provider(messages, "gemini")
+            
+            async with httpx.AsyncClient(timeout=config.REQUEST_TIMEOUT) as client:
+                response = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{config.GEMINI_MODEL}:generateContent?key={key}",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "contents": formatted_messages,
+                        "generationConfig": {
+                            "temperature": config.DEFAULT_TEMPERATURE,
+                            "maxOutputTokens": config.DEFAULT_MAX_TOKENS,
+                        }
+                    }
+                )
+                
+                response.raise_for_status()
+                data = response.json()
+                
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+                
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in [401, 403, 429]:
+                logger.warning(f"Gemini API error {e.response.status_code}, attempt {attempt + 1}")
+                if attempt < config.MAX_RETRIES - 1:
+                    await asyncio.sleep(config.RETRY_DELAY * (2 ** attempt))
+                    continue
+            raise ProviderError(f"Gemini API error: {e.response.status_code}")
+        
+        except Exception as e:
+            logger.error(f"Gemini request failed: {e}")
+            if attempt < config.MAX_RETRIES - 1:
+                await asyncio.sleep(config.RETRY_DELAY)
+                continue
+            raise ProviderError(f"Gemini request failed: {e}")
+    
+    raise ProviderError("Gemini: All retry attempts failed")
+
+async def stream_gemini(messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
+    """Stream from Gemini API (simulated since Gemini doesn't support native streaming)"""
+    content = await call_gemini(messages)
+    
+    # Simulate streaming by yielding chunks
     chunk_size = 50
     for i in range(0, len(content), chunk_size):
-        yield content[i:i + chunk_size]
-        await asyncio.sleep(0.05)  # Giả lập stream
-    logger.info("Stream Gemini (giả lập) thành công")
+        chunk = content[i:i + chunk_size]
+        yield chunk
+        await asyncio.sleep(0.05)  # Small delay to simulate real streaming
 
-# ------------------------- OpenRouter Non-Stream -------------------------
-async def call_openrouter_full_messages(messages: List[Dict[str, str]]) -> str:
-    if not has_keys("openrouter"):
-        logger.error("Không có khóa OpenRouter được cấu hình")
-        raise RuntimeError("Không có khóa OpenRouter được cấu hình")
-    last_exc = None
-    attempts = len(OPENROUTER_KEYS)
-    for i in range(attempts):
-        key = get_next_key("openrouter")
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        payload = {
-            "model": "anthropic/claude-3.5-sonnet",  # Model mặc định, có thể thay đổi
-            "messages": messages,
-            "max_tokens": 1500,
-            "temperature": 0.1,
-        }
+async def call_openrouter(messages: List[Dict[str, str]]) -> str:
+    """Call OpenRouter API"""
+    if not config.has_provider("openrouter"):
+        raise APIKeyError("OpenRouter keys not configured")
+    
+    await rate_limiter.wait_if_needed(config.RATE_LIMIT_PER_MINUTE)
+    
+    for attempt in range(config.MAX_RETRIES):
         try:
-            logger.info(f"Thử gọi OpenRouter, lần {i+1}/{attempts}")
-            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
-                r = await client.post(url, json=payload, headers=headers)
-                r.raise_for_status()
-                logger.info("Gọi OpenRouter thành công")
-                return _safe_extract_openrouter(r.json())
+            key = get_random_key("openrouter")
+            
+            async with httpx.AsyncClient(timeout=config.REQUEST_TIMEOUT) as client:
+                response = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://heinbot.local",
+                        "X-Title": "HeinBot"
+                    },
+                    json={
+                        "model": config.OPENROUTER_MODEL,
+                        "messages": messages,
+                        "max_tokens": config.DEFAULT_MAX_TOKENS,
+                        "temperature": config.DEFAULT_TEMPERATURE,
+                    }
+                )
+                
+                response.raise_for_status()
+                data = response.json()
+                
+                return data["choices"][0]["message"]["content"]
+                
         except httpx.HTTPStatusError as e:
-            status = e.response.status_code if e.response else None
-            logger.warning(f"OpenRouter trả về trạng thái {status}, thử khóa tiếp theo")
-            last_exc = e
-            if status in (429, 401, 403):
-                await asyncio.sleep(RETRY_SLEEP)
-                continue
-            raise
+            if e.response.status_code in [401, 403, 429]:
+                logger.warning(f"OpenRouter API error {e.response.status_code}, attempt {attempt + 1}")
+                if attempt < config.MAX_RETRIES - 1:
+                    await asyncio.sleep(config.RETRY_DELAY * (2 ** attempt))
+                    continue
+            raise ProviderError(f"OpenRouter API error: {e.response.status_code}")
+        
         except Exception as e:
-            logger.exception(f"Gọi OpenRouter thất bại, lần {i+1}/{attempts}")
-            last_exc = e
-            await asyncio.sleep(RETRY_SLEEP)
-            continue
-    logger.error("Tất cả các lần thử OpenRouter đều thất bại")
-    raise last_exc or RuntimeError("Gọi OpenRouter thất bại")
-
-# ------------------------- OpenRouter Stream -------------------------
-async def stream_openrouter_messages(messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
-    if not has_keys("openrouter"):
-        logger.error("Không có khóa OpenRouter được cấu hình")
-        raise RuntimeError("Không có khóa OpenRouter được cấu hình")
-    last_exc = None
-    attempts = len(OPENROUTER_KEYS)
-    for i in range(attempts):
-        key = get_next_key("openrouter")
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        payload = {
-            "model": "anthropic/claude-3.5-sonnet",
-            "messages": messages,
-            "max_tokens": 1500,
-            "temperature": 0.1,
-            "stream": True,
-        }
-        try:
-            logger.info(f"Thử stream OpenRouter, lần {i+1}/{attempts}")
-            async with httpx.AsyncClient(timeout=None) as client:
-                async with client.stream("POST", url, json=payload, headers=headers) as resp:
-                    resp.raise_for_status()
-                    buffer = ""
-                    async for chunk_bytes in resp.aiter_bytes():
-                        if not chunk_bytes:
-                            continue
-                        chunk = chunk_bytes.decode("utf-8", errors="ignore")
-                        buffer += chunk
-                        while "\n" in buffer:
-                            line, buffer = buffer.split("\n", 1)
-                            line = line.strip()
-                            if not line or line.startswith(":"):  # Bỏ qua comment SSE
-                                continue
-                            if line.startswith("data: "):
-                                data_str = line[6:].strip()
-                            else:
-                                data_str = line
-                            if data_str in ("[DONE]", ""):
-                                return
-                            try:
-                                data = json.loads(data_str)
-                                delta = data.get("choices", [{}])[0].get("delta", {})
-                                content = delta.get("content")
-                                if content:
-                                    yield content
-                            except json.JSONDecodeError:
-                                continue  # Bỏ qua JSON không hợp lệ
-            logger.info("Stream OpenRouter thành công")
-            return
-        except httpx.HTTPStatusError as e:
-            status = e.response.status_code if e.response else None
-            logger.warning(f"OpenRouter stream trả về trạng thái {status}, thử khóa tiếp theo")
-            last_exc = e
-            if status in (429, 401, 403):
-                await asyncio.sleep(RETRY_SLEEP)
+            logger.error(f"OpenRouter request failed: {e}")
+            if attempt < config.MAX_RETRIES - 1:
+                await asyncio.sleep(config.RETRY_DELAY)
                 continue
-            raise
-        except Exception as e:
-            logger.exception(f"Stream OpenRouter thất bại, lần {i+1}/{attempts}")
-            last_exc = e
-            await asyncio.sleep(RETRY_SLEEP)
-            continue
-    logger.error("Tất cả các lần thử stream OpenRouter đều thất bại")
-    raise last_exc or RuntimeError("Stream OpenRouter thất bại")
+            raise ProviderError(f"OpenRouter request failed: {e}")
+    
+    raise ProviderError("OpenRouter: All retry attempts failed")
 
-# ------------------------- Auto Non-Stream -------------------------
+# Provider registry for easier management
+PROVIDERS = {
+    "openai": {"call": call_openai, "stream": stream_openai},
+    "anthropic": {"call": call_anthropic, "stream": None},
+    "gemini": {"call": call_gemini, "stream": stream_gemini},
+    "openrouter": {"call": call_openrouter, "stream": None},
+}
+
 async def call_auto_messages(messages: List[Dict[str, str]]) -> str:
-    """Tự động chọn nhà cung cấp (ưu tiên OpenAI)."""
-    try:
-        logger.info("Thử gọi OpenAI (ưu tiên)")
-        return await call_openai_full_messages(messages)
-    except Exception as e:
-        logger.warning(f"OpenAI thất bại: {str(e)}")
+    """Auto-select provider and make a call"""
+    available_providers = config.get_available_providers()
+    
+    if not available_providers:
+        raise NoProvidersAvailableError("No API providers are configured")
+    
+    # Try providers in priority order
+    priority_order = ["anthropic", "openai", "gemini", "openrouter"]
+    providers_to_try = [p for p in priority_order if p in available_providers]
+    
+    last_error = None
+    
+    for provider in providers_to_try:
+        try:
+            logger.info(f"Trying provider: {provider}")
+            call_func = PROVIDERS[provider]["call"]
+            result = await call_func(messages)
+            logger.info(f"Success with provider: {provider}")
+            return result
+            
+        except Exception as e:
+            logger.warning(f"Provider {provider} failed: {e}")
+            last_error = e
+            continue
+    
+    # If all providers failed
+    if last_error:
+        raise last_error
+    else:
+        raise NoProvidersAvailableError("All providers failed")
 
-    try:
-        logger.info("Thử gọi Gemini (dự phòng)")
-        return await call_gemini_full_messages(messages)
-    except Exception as e:
-        logger.warning(f"Gemini thất bại: {str(e)}")
-
-    logger.info("Thử gọi OpenRouter (dự phòng cuối)")
-    return await call_openrouter_full_messages(messages)
-
-# ------------------------- Auto Stream -------------------------
 async def stream_auto_messages(messages: List[Dict[str, str]]) -> AsyncGenerator[str, None]:
-    """Tự động chọn nhà cung cấp cho stream (ưu tiên OpenAI)."""
-    try:
-        logger.info("Thử stream OpenAI (ưu tiên)")
-        async for token in stream_openai_messages(messages):
-            yield token
-        return
-    except Exception as e:
-        logger.warning(f"OpenAI stream thất bại: {str(e)}")
-
-    try:
-        logger.info("Thử stream Gemini (dự phòng)")
-        async for token in stream_gemini_messages(messages):
-            yield token
-        return
-    except Exception as e:
-        logger.warning(f"Gemini stream thất bại: {str(e)}")
-
-    logger.info("Thử stream OpenRouter (dự phòng cuối)")
-    async for token in stream_openrouter_messages(messages):
-        yield token
-    return
+    """Auto-select provider and stream response"""
+    available_providers = config.get_available_providers()
+    
+    if not available_providers:
+        raise NoProvidersAvailableError("No API providers are configured")
+    
+    # Try providers that support streaming first
+    streaming_providers = ["openai", "gemini"]
+    providers_to_try = [p for p in streaming_providers if p in available_providers]
+    
+    # Add non-streaming providers as fallback
+    non_streaming_providers = ["anthropic", "openrouter"]
+    providers_to_try.extend([p for p in non_streaming_providers if p in available_providers])
+    
+    last_error = None
+    
+    for provider in providers_to_try:
+        try:
+            logger.info(f"Trying to stream from provider: {provider}")
+            stream_func = PROVIDERS[provider]["stream"]
+            
+            if stream_func:
+                # True streaming
+                async for chunk in stream_func(messages):
+                    yield chunk
+                logger.info(f"Stream success with provider: {provider}")
+                return
+            else:
+                # Fallback to regular call and simulate streaming
+                call_func = PROVIDERS[provider]["call"]
+                content = await call_func(messages)
+                
+                # Simulate streaming
+                chunk_size = 30
+                for i in range(0, len(content), chunk_size):
+                    chunk = content[i:i + chunk_size]
+                    yield chunk
+                    await asyncio.sleep(0.03)
+                
+                logger.info(f"Simulated stream success with provider: {provider}")
+                return
+                
+        except Exception as e:
+            logger.warning(f"Stream provider {provider} failed: {e}")
+            last_error = e
+            continue
+    
+    # If all providers failed
+    if last_error:
+        raise last_error
+    else:
+        raise NoProvidersAvailableError("All streaming providers failed")
